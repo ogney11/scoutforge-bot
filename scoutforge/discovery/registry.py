@@ -102,7 +102,7 @@ def build_sources(
         name = raw_name.strip()
         factory = _REGISTRY.get(name)
         if factory is None:
-            log_event(log, 30, "SOURCE_UNKNOWN", name=name, available=available_sources())
+            log_event(log, 30, "SOURCE_UNKNOWN", source_name=name, available=available_sources())
             continue
         sources.append(factory(api, discovery))
 

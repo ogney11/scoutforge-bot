@@ -38,7 +38,7 @@ def register_events(bot: Any) -> None:
 
     @bot.event
     async def on_guild_join(guild: discord.Guild) -> None:
-        log_event(log, 20, "GUILD_JOIN", guild=guild.id, name=guild.name)
+        log_event(log, 20, "GUILD_JOIN", guild=guild.id, guild_name=guild.name)
 
     if getattr(bot, "tree", None) is not None:
         bot.tree.on_error = _on_app_command_error

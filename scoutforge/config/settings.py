@@ -9,14 +9,55 @@ database table by :class:`scoutforge.services.settings_service.SettingsService`.
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, SecretStr, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from scoutforge.partners.keywords import DEFAULT_RISK_KEYWORDS
 
 Environment = Literal["development", "staging", "production"]
+
+#: pydantic-settings runs ``json.loads`` on env values for list/dict fields *before*
+#: validators see them, which turns the documented comma separated form
+#: (``ENABLED_SOURCES=roblox_explore,roblox_search``) into a hard ``SettingsError``
+#: at startup. ``NoDecode`` hands the raw string to our own parser instead, so one
+#: function owns every accepted syntax.
+CsvStrList = Annotated[list[str], NoDecode]
+CsvIntList = Annotated[list[int], NoDecode]
+
+_QUOTES = ('"', "'")
+
+
+def parse_csv_list(value: str) -> list[str]:
+    """Parse a comma separated env value into a clean list of items.
+
+    Accepts ``a,b`` and also the JSON-ish ``["a","b"]`` form people reach for out
+    of habit, so a well-meant typo degrades to the same list instead of silently
+    producing names that match nothing.
+    """
+    text = value.strip()
+    if text.startswith("[") and text.endswith("]"):
+        text = text[1:-1]
+    items: list[str] = []
+    for part in text.split(","):
+        item = part.strip()
+        if len(item) >= 2 and item[0] == item[-1] and item[0] in _QUOTES:
+            item = item[1:-1].strip()
+        if item:
+            items.append(item)
+    return items
+
+
+def parse_int_list(value: str) -> list[int]:
+    """Parse a comma separated env value into ints (Discord id lists)."""
+    out: list[int] = []
+    for item in parse_csv_list(value):
+        try:
+            out.append(int(item))
+        except ValueError:
+            raise ValueError(f"expected a whole number, got {item!r}") from None
+    return out
 
 
 class _Base(BaseSettings):
@@ -88,10 +129,10 @@ class DiscordSettings(_Base):
     guild_id: int | None = Field(default=None, validation_alias="DISCORD_GUILD_ID")
     alert_channel_id: int | None = Field(default=None, validation_alias="ALERT_CHANNEL_ID")
     alert_role_id: int | None = Field(default=None, validation_alias="ALERT_ROLE_ID")
-    alert_mention_user_ids: list[int] = Field(
+    alert_mention_user_ids: CsvIntList = Field(
         default_factory=list, validation_alias="ALERT_MENTION_USER_IDS"
     )
-    admin_role_ids: list[int] = Field(default_factory=list, validation_alias="ADMIN_ROLE_IDS")
+    admin_role_ids: CsvIntList = Field(default_factory=list, validation_alias="ADMIN_ROLE_IDS")
     command_global: bool = Field(default=False, validation_alias="DISCORD_COMMAND_GLOBAL")
     embed_color: int = Field(default=0x5865F2)
     alert_embed_color: int = Field(default=0xED4245)
@@ -100,15 +141,7 @@ class DiscordSettings(_Base):
     @classmethod
     def _split_csv(cls, value: object) -> object:
         if isinstance(value, str):
-            raw = value.replace(" ", "")
-            if not raw:
-                return []
-            out: list[int] = []
-            for part in raw.split(","):
-                if not part:
-                    continue
-                out.append(int(part))
-            return out
+            return parse_int_list(value.replace(" ", ""))
         return value
 
     @field_validator("guild_id", "alert_channel_id", "alert_role_id", mode="before")
@@ -218,7 +251,7 @@ class PartnerSettings(_Base):
         validation_alias="PARTNER_MIN_GAME_SCORE",
         description="Only match partners against games scoring at least this much.",
     )
-    risk_keywords: list[str] = Field(
+    risk_keywords: CsvStrList = Field(
         default_factory=lambda: list(DEFAULT_RISK_KEYWORDS),
         validation_alias="PARTNER_RISK_KEYWORDS",
     )
@@ -227,7 +260,7 @@ class PartnerSettings(_Base):
     @classmethod
     def _split_csv(cls, value: object) -> object:
         if isinstance(value, str):
-            return [part.strip().lower() for part in value.split(",") if part.strip()]
+            return [part.lower() for part in parse_csv_list(value)]
         return value
 
 
@@ -295,14 +328,14 @@ class RobloxApiSettings(_Base):
 class DiscoverySettings(_Base):
     """Which discovery sources run, and how much they fetch."""
 
-    enabled_sources: list[str] = Field(
+    enabled_sources: CsvStrList = Field(
         default_factory=lambda: ["roblox_explore", "roblox_search"],
         validation_alias="ENABLED_SOURCES",
     )
     explore_pages: int = Field(default=3, ge=1, le=50, validation_alias="ROBLOX_EXPLORE_PAGES")
     explore_sort: str = Field(default="DescPlayers", validation_alias="ROBLOX_EXPLORE_SORT")
     explore_page_size: int = Field(default=50, ge=1, le=100)
-    search_terms: list[str] = Field(
+    search_terms: CsvStrList = Field(
         default_factory=lambda: [
             "trending",
             "new",
@@ -314,7 +347,7 @@ class DiscoverySettings(_Base):
         validation_alias="ROBLOX_SEARCH_TERMS",
     )
     search_terms_per_scan: int = Field(default=4, ge=0, le=50)
-    sort_orders: list[str] = Field(
+    sort_orders: CsvStrList = Field(
         default_factory=lambda: ["Desc", "Asc"], validation_alias="ROBLOX_EXPLORE_SORT_ORDERS"
     )
 
@@ -322,7 +355,7 @@ class DiscoverySettings(_Base):
     @classmethod
     def _split_csv(cls, value: object) -> object:
         if isinstance(value, str):
-            return [part.strip() for part in value.split(",") if part.strip()]
+            return parse_csv_list(value)
         return value
 
 

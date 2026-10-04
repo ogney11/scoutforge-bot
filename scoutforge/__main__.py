@@ -93,6 +93,8 @@ async def _ensure_schema(settings: Settings) -> None:
 
 def _validate(settings: Settings) -> list[str]:
     """Return a list of configuration problems (empty when healthy)."""
+    from scoutforge.discovery.registry import available_sources
+
     problems: list[str] = []
     if not settings.discord.token.get_secret_value():
         problems.append("DISCORD_TOKEN is not set")
@@ -102,6 +104,14 @@ def _validate(settings: Settings) -> list[str]:
         problems.append("ALERT_CHANNEL_ID is not set - alerts cannot be delivered")
     if not settings.discovery.enabled_sources:
         problems.append("ENABLED_SOURCES is empty - no discovery will happen")
+    else:
+        known = available_sources()
+        unknown = [name for name in settings.discovery.enabled_sources if name not in known]
+        if unknown:
+            problems.append(
+                f"ENABLED_SOURCES contains unknown source(s) {unknown} - "
+                f"valid names: {', '.join(known)}"
+            )
     return problems
 
 

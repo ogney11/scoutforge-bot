@@ -83,6 +83,25 @@ def redact(value: str) -> str:
     return value
 
 
+#: Prefix used to keep an extra whose key would collide with a LogRecord field.
+CONTEXT_PREFIX = "ctx_"
+
+
+def _collision_safe(fields: dict[str, Any]) -> dict[str, Any]:
+    """Rename extras that would collide with reserved ``LogRecord`` attributes.
+
+    ``logging`` raises ``KeyError("Attempt to overwrite 'name' in LogRecord")``
+    from ``Logger.makeRecord`` *before* any handler or formatter runs, so a
+    perfectly reasonable context field such as ``name=`` would turn a log line
+    into a crash. Reserved keys are renamed to ``ctx_<key>`` instead: the data
+    survives, the record is created, and the collision is visible in the output.
+    """
+    safe: dict[str, Any] = {}
+    for key, value in fields.items():
+        safe[f"{CONTEXT_PREFIX}{key}" if key in _RESERVED else key] = value
+    return safe
+
+
 def _sanitize_extra(extra: dict[str, Any]) -> dict[str, Any]:
     clean: dict[str, Any] = {}
     for key, value in extra.items():
@@ -170,8 +189,12 @@ def get_logger(name: str) -> logging.Logger:
 def log_event(logger: logging.Logger, level: int, tag: str, **fields: Any) -> None:
     """Emit a tagged structured event.
 
+    Context fields that collide with reserved ``LogRecord`` attributes (``name``,
+    ``message``, ``args`` …) are renamed to ``ctx_<key>`` rather than crashing the
+    caller, so a log line can never take the process down.
+
     Example::
 
         log_event(log, logging.INFO, "DISCOVERY", candidates=142, accepted=8)
     """
-    logger.log(level, "[%s]", tag, extra=fields)
+    logger.log(level, "[%s]", tag, extra=_collision_safe(fields))
