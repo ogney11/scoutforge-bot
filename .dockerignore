@@ -1,0 +1,29 @@
+# Keep the build context small and never bake secrets into layers.
+.git
+.gitignore
+.venv
+.mypy_cache
+.pytest_cache
+.ruff_cache
+**/__pycache__
+*.py[cod]
+*.egg-info
+build
+dist
+
+# Local configuration and databases
+.env
+.env.*
+!.env.example
+*.db
+*.sqlite
+*.sqlite3
+
+# Tests and CI config are not needed at runtime. README.md is deliberately kept:
+# pyproject references it, so setuptools metadata would fail without it.
+scoutforge/tests
+.github
+Dockerfile
+docker-compose.yml
+.dockerignore
+CONTRIBUTING.md
